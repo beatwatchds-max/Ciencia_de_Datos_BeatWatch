@@ -1,0 +1,54 @@
+name: CI / quality-and-security-gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality-tests-security:
+    runs-on: ubuntu-latest
+    env:
+      # Valor sintáctico para permitir importar config.py durante las pruebas.
+      # Las pruebas unitarias no se conectan a MongoDB.
+      MONGO_CONNECTION_STRING: mongodb://localhost:27017
+      DB_NAME: BeatWatchDb_Test
+      ETL_BATCH_INTERVAL_SECONDS: "60"
+      ETL_RUN_ON_STARTUP: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Compile Python
+        run: python -m compileall -q .
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Unit tests
+        run: pytest
+
+      - name: Bandit SAST
+        run: bandit -q -r . -x ./tests,./.venv -ll
+
+      - name: Dependency audit
+        run: pip-audit -r requirements.txt
