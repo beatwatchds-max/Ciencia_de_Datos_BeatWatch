@@ -9,11 +9,16 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality-tests-security:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
-      # Valor sintáctico para permitir importar config.py durante las pruebas.
+      # Valor sintáctico únicamente para importar config.py durante las pruebas.
       # Las pruebas unitarias no se conectan a MongoDB.
       MONGO_CONNECTION_STRING: mongodb://localhost:27017
       DB_NAME: BeatWatchDb_Test
@@ -22,10 +27,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
           cache: pip
@@ -35,11 +42,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+          python -m pip install --disable-pip-version-check -r requirements.txt -r requirements-dev.txt
 
       - name: Compile Python
-        run: python -m compileall -q .
+        run: python -m compileall -q -x '/\.venv/' .
 
       - name: Ruff
         run: ruff check .
@@ -50,5 +56,23 @@ jobs:
       - name: Bandit SAST
         run: bandit -q -r . -x ./tests,./.venv -ll
 
-      - name: Dependency audit
+      - name: Secret leak gate
+        run: python scripts/security_scan.py
+
+      - name: Runtime dependency audit
         run: pip-audit -r requirements.txt
+
+      - name: Dev dependency audit
+        run: pip-audit -r requirements-dev.txt
+
+      - name: Build hardened container
+        run: docker build -t beatwatch-etl:ci .
+
+      - name: Verify container runs as non-root
+        run: |
+          docker run --rm --entrypoint sh beatwatch-etl:ci -c '
+            test "$(id -u)" -ne 0 &&
+            test ! -e /app/test_extract.py &&
+            test ! -e /app/test_connection.py &&
+            test ! -e /app/.env
+          '

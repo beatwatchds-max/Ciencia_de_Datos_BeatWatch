@@ -49,7 +49,6 @@ def construir_pipeline_change_stream():
 def mostrar_cambio(cambio: dict, lote: LoteCambios) -> None:
     coleccion = cambio.get("ns", {}).get("coll", "desconocida")
     operacion = cambio.get("operationType", "desconocida")
-
     print(
         f"Cambio agrupado | colección={coleccion} | operación={operacion} "
         f"| pendientes={lote.total}"
@@ -73,7 +72,9 @@ def procesar_lote(db, lote: LoteCambios) -> bool:
     try:
         ejecutar_etl(db)
     except Exception as exc:
-        print(f"ERROR AL EJECUTAR EL LOTE ETL: {exc}")
+        # No mostrar el texto completo de la excepción. PyMongo puede incluir
+        # detalles de infraestructura en sus mensajes.
+        print(f"ERROR AL EJECUTAR EL LOTE ETL: {type(exc).__name__}")
         return False
 
     lote.reiniciar()
@@ -86,12 +87,10 @@ def ejecutar_trigger():
 
     try:
         client, db = connect_database()
-        print(f"MongoDB conectado: {db.name}")
+        print("MongoDB conectado correctamente.")
         print("Worker automático de BeatWatch iniciado.")
         print(f"Ventana de agrupación: {ETL_BATCH_INTERVAL_SECONDS} segundos")
-        print("Colecciones vigiladas:")
-        for coleccion in COLECCIONES_VIGILADAS:
-            print(f"  - {coleccion}")
+        print(f"Colecciones vigiladas: {len(COLECCIONES_VIGILADAS)}")
 
         # Evita estadísticas desactualizadas tras un reinicio del worker.
         if ETL_RUN_ON_STARTUP:
@@ -99,7 +98,6 @@ def ejecutar_trigger():
             ejecutar_etl(db)
 
         pipeline = construir_pipeline_change_stream()
-
         with db.watch(
             pipeline,
             full_document="updateLookup",
@@ -125,14 +123,18 @@ def ejecutar_trigger():
 
     except KeyboardInterrupt:
         print("\nWorker detenido por el usuario.")
-
     except PyMongoError as exc:
-        print(f"ERROR DE MONGODB EN EL WORKER: {exc}")
+        print(f"ERROR DE MONGODB EN EL WORKER: {type(exc).__name__}")
         raise
-
     finally:
         close_database(client)
 
 
 if __name__ == "__main__":
-    ejecutar_trigger()
+    try:
+        ejecutar_trigger()
+    except Exception as exc:
+        # El proceso sigue terminando con error, pero el traceback sensible no
+        # se envía al log de la plataforma.
+        print(f"WORKER FINALIZADO POR ERROR: {type(exc).__name__}")
+        raise SystemExit(1) from None

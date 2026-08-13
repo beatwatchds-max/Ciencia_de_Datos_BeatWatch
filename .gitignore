@@ -1,11 +1,38 @@
+# Secretos y configuración local
 .env
+.env.*
+!.env.example
+secrets/
+credentials*.json
+service-account*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Entornos y Python
 .venv/
+venv/
 __pycache__/
-*.pyc
-.idea/
-.vscode/
+*.py[cod]
+*.pyo
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 .coverage
+coverage.xml
 htmlcov/
+
+# IDE / SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Build / temporales / logs
+build/
+dist/
+*.egg-info/
 *.log
+*.tmp
+*.bak

@@ -19,7 +19,6 @@ from config import (
     ESTADISTICAS_COLLECTION,
 )
 
-
 # ============================================================
 # CONFIGURACIÓN
 # ============================================================
@@ -27,7 +26,6 @@ from config import (
 MONGO_URI = MONGO_CONNECTION_STRING
 MONGO_DATABASE = DB_NAME
 COLECCION_ESTADISTICAS = ESTADISTICAS_COLLECTION
-
 
 # ============================================================
 # CONEXIÓN
@@ -56,14 +54,12 @@ def crear_cliente_mongo(uri: str | None = None) -> MongoClient:
     return cliente
 
 
-
 def obtener_base_datos(
     cliente: MongoClient,
     nombre_base_datos: str | None = None,
 ) -> Database:
     """
     Obtiene la base de datos indicada.
-
     Prioridad:
     1. Parámetro nombre_base_datos.
     2. Variable de entorno MONGO_DATABASE.
@@ -77,11 +73,11 @@ def obtener_base_datos(
 
     try:
         return cliente.get_default_database()
-    except ConfigurationError as error:
+    except ConfigurationError:
         raise ValueError(
             "No se indicó la base de datos. Agrega el nombre a MONGO_URI "
             "o define la variable de entorno MONGO_DATABASE."
-        ) from error
+        ) from None
 
 
 # ============================================================
@@ -113,10 +109,10 @@ def preparar_estadistica(documento: dict[str, Any]) -> dict[str, Any]:
 
     try:
         datetime.strptime(fecha, "%Y-%m-%d")
-    except ValueError as error:
+    except ValueError:
         raise ValueError(
-            f"La fecha '{fecha}' no tiene el formato YYYY-MM-DD."
-        ) from error
+            "La estadística contiene una Fecha con formato inválido."
+        ) from None
 
     # Se agrega una fecha técnica para saber cuándo se ejecutó el LOAD.
     estadistica["FechaActualizacion"] = datetime.now(timezone.utc)
@@ -124,11 +120,9 @@ def preparar_estadistica(documento: dict[str, Any]) -> dict[str, Any]:
     return estadistica
 
 
-
 def crear_indice_unico(database: Database, nombre_coleccion: str) -> None:
     """
     Evita duplicados para el mismo paciente y día.
-
     Si ya existen documentos duplicados, MongoDB no podrá crear el índice y
     se mostrará un error claro para que puedan limpiarse antes de continuar.
     """
@@ -155,9 +149,7 @@ def cargar_estadisticas_diarias(
     database: Database,
     nombre_coleccion: str = COLECCION_ESTADISTICAS,
 ) -> dict[str, int]:
-    """
-    Inserta o actualiza las estadísticas diarias mediante operaciones upsert.
-    """
+    """Inserta o actualiza las estadísticas diarias mediante operaciones upsert."""
 
     if not isinstance(estadisticas, list):
         raise TypeError("estadisticas_diarias debe ser una lista.")
@@ -183,6 +175,8 @@ def cargar_estadisticas_diarias(
             estadistica = preparar_estadistica(documento)
         except (TypeError, ValueError) as error:
             omitidas += 1
+            # El mensaje de validación se controla en este módulo y no incluye
+            # el documento completo ni el identificador del paciente.
             print(f"Estadística {posicion} omitida: {error}")
             continue
 
@@ -238,14 +232,12 @@ def cargar_estadisticas_diarias(
     }
 
 
-
 def load(
     data: dict[str, Any],
     database: Database | None = None,
     nombre_base_datos: str | None = None,
     nombre_coleccion: str = COLECCION_ESTADISTICAS,
 ) -> dict[str, int]:
-   
 
     print("")
     print("================================")
@@ -256,7 +248,6 @@ def load(
         raise TypeError("LOAD esperaba el diccionario retornado por transform.py.")
 
     estadisticas = data.get("estadisticas_diarias", [])
-
     cliente_creado: MongoClient | None = None
 
     try:
@@ -289,29 +280,31 @@ def load(
 
         return resumen
 
-    except DuplicateKeyError as error:
+    except DuplicateKeyError:
         raise RuntimeError(
             "Se detectó un valor duplicado para IdPaciente y Fecha. "
             "Revisa los documentos existentes en EstadisticasDiarias."
-        ) from error
+        ) from None
 
-    except OperationFailure as error:
+    except OperationFailure:
         raise RuntimeError(
             "MongoDB rechazó una operación. Verifica permisos, índices y "
             "la configuración de la base de datos."
-        ) from error
+        ) from None
 
     except BulkWriteError as error:
         detalles = error.details or {}
         errores = detalles.get("writeErrors", [])
         raise RuntimeError(
             f"La carga masiva falló con {len(errores)} error(es) de escritura."
-        ) from error
+        ) from None
 
-    except PyMongoError as error:
+    except PyMongoError:
+        # No propaga texto del driver porque puede contener host, URI o
+        # detalles de topología. El caller conserva una señal de fallo clara.
         raise RuntimeError(
-            f"No fue posible completar el LOAD en MongoDB: {error}"
-        ) from error
+            "No fue posible completar el LOAD en MongoDB."
+        ) from None
 
     finally:
         if cliente_creado is not None:
@@ -336,6 +329,7 @@ def ejecutar_pipeline() -> dict[str, int]:
         cliente, database = connect_database()
         datos_extraidos = extract_all(database)
         datos_transformados = transform(datos_extraidos)
+
         return load(
             datos_transformados,
             database=database,
@@ -348,17 +342,16 @@ def ejecutar_pipeline() -> dict[str, int]:
 if __name__ == "__main__":
     try:
         ejecutar_pipeline()
-    except ImportError as error:
+    except ImportError:
         print("")
         print("No fue posible importar un módulo del pipeline ETL.")
         print(
             "Verifica que database.py, extract.py y transform.py estén "
             "en la misma carpeta que load.py."
         )
-        print(f"Detalle: {error}")
     except Exception as error:
         print("")
         print("================================")
         print("ERROR EN EL LOAD")
         print("================================")
-        print(error)
+        print(f"Tipo de error: {type(error).__name__}")
